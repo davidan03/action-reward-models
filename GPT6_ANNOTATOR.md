@@ -67,19 +67,56 @@ labelled). One relabel per order, so order effects and GPT-6's own sampling rand
 - For scoring, exact-candidate agreement tops out near 70 % even for GPT-6 against itself; compare ARMs on
   near-identical-action agreement instead.
 
+## Full relabel (782 validation + 8,731 training examples)
+
+- **Validation:** all 782 examples. **Training:** up to 3 of each state's ~13–16 candidate sets, for all 2,992 states
+  in the training file. `data_generation/openwebrl_actor/select_relabel_subset.py` picks them by a seeded shuffle within
+  each state and writes them rank by rank, so the first 2,992 / 5,899 / 8,731 examples are complete 1-, 2- and
+  3-per-state subsets for a learning curve.
+- 0 API errors and 0 parse failures; **$0.0548 per label** (the whole relabel incl. the pilot: $522).
+- 2 of the 39,155 training examples are excluded: a malformed candidate contains its own indented numbered list, so the
+  candidates cannot be split unambiguously. Every other example re-renders byte-identically.
+- Full validation set: GPT-6 and GPT-5.5 pick the same candidate in 426/782 and a near-identical action in 567/782.
+- Validation overlaps training by state: 688 of the 689 validation states also appear in the training file (no
+  identical example is in both).
+
+## ARMs trained on the relabelled examples
+
+Two LoRA ARMs on `OpenWebRL/OpenWebRL-4B-SFT` with `training/llamafactory/arm_lora.yaml`, changed only in paths and
+checkpointing (every 50 steps, with optimizer state, so a preempted run resumes): one on GPT-6 labels and one on the
+published GPT-5.5 labels of the same 8,731 examples, with identical prompts and candidate order. Both ran on 2 A40 GPUs
+(global batch 32; 2 epochs = 546 steps). GPT-6 ARMs on the 1- and 2-per-state subsets give a learning curve. All are
+scored on the 782 validation prompts (candidates shuffled, greedy decoding), one training run per ARM.
+
+| ARM (labels, training examples) | agrees with GPT-6: same candidate / near-identical action | agrees with GPT-5.5 |
+|---|---|---|
+| GPT-6, 3 per state (8,731) | **364 / 544** | 288 / 496 |
+| GPT-5.5 control, 3 per state (8,731) | 309 / 495 | 331 / 525 |
+| published SelectionARM (GPT-5.5, ~39k, original order) | 329 / 529 | 371 / 573 |
+| GPT-6, 2 per state (5,899) | 324 / 495 | 287 / 479 |
+| GPT-6, 1 per state (2,992) | 282 / 466 | 283 / 470 |
+| random pick (expected) | 156 / 348 | 156 / 347 |
+
+- **The teacher changes what the ARM learns.** With identical examples and setup, the GPT-6 ARM agrees with GPT-6 on
+  55 more examples (same candidate; McNemar 141 vs 86, p = 0.0003) and 49 more (near-identical; 106 vs 57,
+  p = 0.0002). The control agrees more with GPT-5.5 (525 vs 496, p = 0.026).
+- **More labels still help.** Agreement with GPT-6 rises 282 → 324 → 364 from 1 to 3 sets per state, and each step
+  is significant (2 → 3: p = 0.001).
+- **With about 4.5× less data, the GPT-6 ARM matches the published ARM on GPT-6's labels:** 364 vs 329 same candidate
+  (p = 0.04), 544 vs 529 near-identical (p = 0.30).
+- **No first-slot habit.** On shuffled prompts the published ARM picks slot 1 or 2 in 453/782 (313 expected); the
+  ARMs trained on shuffled sets spread their picks evenly (GPT-6, 3 per state: 133 / 141 / 155 / 160 / 193).
+- Caveats: one training run per ARM, so run-to-run variance is not measured; the validation states were seen in
+  training; agreement with GPT-6 is a proxy that matters only if GPT-6 is the better judge.
+
 ## Next steps
 
-1. Relabel all 782 validation examples and ~3 candidate sets per state from the training file (~9k labels,
-   ~$550 at the pilot rate). A learning curve on nested subsets decides whether more labels are worth buying.
-2. Build training sets with the **candidate order shuffled per example** (the label follows the chosen candidate), so
-   neither teacher's tie-breaking habit becomes a slot preference in the ARM:
-   `data_generation/openwebrl_actor/build_selection_sft_relabel.py` writes a GPT-6-label set and a GPT-5.5-label
-   control over the same examples with identical prompts. It refuses to write anything unless every example in the
-   input file re-renders byte-identically in its original order (checked on all 782 validation examples).
-3. Train two ARMs on the same subset with `training/llamafactory/arm_lora.yaml` on `OpenWebRL/OpenWebRL-4B-SFT`:
-   one on GPT-6 labels, one on GPT-5.5 labels (control).
-4. Evaluate: agreement with GPT-6 on the relabelled validation set (also scoring the published ARM), then best-of-5
-   task success on Online-Mind2Web with an OpenWebRL SFT actor.
+1. **Done:** the relabel, the shuffled builds (`data_generation/openwebrl_actor/build_selection_sft_relabel.py`), the
+   two matched ARMs and the learning curve (above).
+2. The learning curve has not flattened: a fourth candidate set per state (2,745 states have one; ~$150) would
+   likely raise agreement further.
+3. A second training run of each 3-per-state ARM, to measure run-to-run variance.
+4. Test the ARMs in use (selection, recovery, rewards); validation agreement cannot replace that.
 
 ## Known caveats
 
