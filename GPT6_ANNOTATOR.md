@@ -49,13 +49,33 @@ python data_generation/openwebrl_actor/relabel_gpt6.py \
 - **Position bias in both teachers.** GPT-5.5 picked slot 1 or 2 in 57/100 (40 expected); GPT-6 picked slot 1 in
   41/100 (20 expected), mostly when breaking ties between equivalent candidates.
 
+## Order-consistency check (same 100 examples, every candidate moved)
+
+The same 100 examples with each candidate set reordered so that no candidate kept its slot
+(`build_selection_sft_relabel.py --derange`), relabelled by GPT-6 with otherwise identical prompts ($5.68, 100/100
+labelled). One relabel per order, so order effects and GPT-6's own sampling randomness are not separated.
+
+- **GPT-6's judgement is stable.** It picked the same candidate in 69/100 (20 by chance) and a near-identical action
+  (same tool calls, every click within 1 % of the screen) in 93/100 (47 by chance). What order mostly changes is which
+  of several near-identical clicks it takes.
+- **Those tie-breaks favour the first slot:** 12 of the 31 changed picks went to the new slot 1 (about 8 if spread
+  evenly). Shuffling the candidate order in the training sets (step 2) keeps this habit out of the ARM.
+- **The teachers really differ on about one example in five.** GPT-6 and GPT-5.5 agree on a near-identical action in
+  78/100 (published order) and 80/100 (reordered), against 93/100 for GPT-6 against itself. Those ~20 examples are
+  what a GPT-6 relabel changes.
+- 14/100 examples offer no real choice (all five candidates near-identical); their label is only a tie-break.
+- For scoring, exact-candidate agreement tops out near 70 % even for GPT-6 against itself; compare ARMs on
+  near-identical-action agreement instead.
+
 ## Next steps
 
 1. Relabel all 782 validation examples and ~3 candidate sets per state from the training file (~9k labels,
    ~$550 at the pilot rate). A learning curve on nested subsets decides whether more labels are worth buying.
 2. Build training sets with the **candidate order shuffled per example** (the label follows the chosen candidate), so
-   neither teacher's tie-breaking habit becomes a slot preference in the ARM. *(Builder for the published format:
-   still to write.)*
+   neither teacher's tie-breaking habit becomes a slot preference in the ARM:
+   `data_generation/openwebrl_actor/build_selection_sft_relabel.py` writes a GPT-6-label set and a GPT-5.5-label
+   control over the same examples with identical prompts. It refuses to write anything unless every example in the
+   input file re-renders byte-identically in its original order (checked on all 782 validation examples).
 3. Train two ARMs on the same subset with `training/llamafactory/arm_lora.yaml` on `OpenWebRL/OpenWebRL-4B-SFT`:
    one on GPT-6 labels, one on GPT-5.5 labels (control).
 4. Evaluate: agreement with GPT-6 on the relabelled validation set (also scoring the published ARM), then best-of-5
