@@ -121,8 +121,9 @@ async def label_one(client, ledger, idx, example, args, out_lock, out_f):
 async def main_async(args):
     examples = json.load(open(args.examples))
     done = set()
-    if Path(args.out).exists():
-        done = {json.loads(l)["idx"] for l in open(args.out) if json.loads(l).get("status") in ("labelled", "dry_run")}
+    if Path(args.out).exists():  # a dry-run record never counts as done for a real run (it would silently skip the call)
+        keep = ("labelled", "dry_run") if args.dry_run else ("labelled",)
+        done = {json.loads(l)["idx"] for l in open(args.out) if json.loads(l).get("status") in keep}
     todo = [i for i in range(len(examples)) if i not in done][: args.limit or None]
     client = None
     if not args.dry_run:
