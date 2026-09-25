@@ -16,3 +16,8 @@ so pass the repository root as `source_root`.
 `serve_arm.py` imports `openwebrl.arm_inference`, so to serve an ARM, copy
 `openwebrl/arm_inference.py` into an OpenWebRL checkout's `openwebrl/` package and run
 `serve_arm.py` from there.
+
+**End-of-turn token.** OpenWebRL's generator appends `<|im_end|>` to every response. Our annotator records and
+`build_selection_sft_gpt6.py` strip it before `split_response` (otherwise the tokenizer turns it into a real turn boundary
+inside the ARM's user message). `ActionSelector` passes raw outputs, so when serving an ARM trained on this data, strip the
+same token from each candidate (and history response) before `split_response` to keep train and serve inputs identical.

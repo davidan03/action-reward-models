@@ -26,10 +26,17 @@ import hashlib
 import importlib.util
 import json
 import random
+import re
 import shutil
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
+# the generator appends an end-of-turn token to every response; same rule as gpt6_step_selector._clean (idempotent)
+EOT_RE = re.compile(r"(?:\s*(?:<\|im_end\|>|<\|endoftext\|>))+\s*$")
+
+
+def clean(response):
+    return EOT_RE.sub("", response or "")
 
 
 def load_arm_inference():
@@ -93,8 +100,9 @@ def main():
 
             order = list(range(len(r["candidates"])))
             random.Random(f"{args.seed}:{r['task_id']}:{r['step']}").shuffle(order)
-            cands = [ai.split_response(r["candidates"][i]) for i in order]
-            msgs = ai.selection_messages(builder, r["task"], r["url"], r["history"], cands, b"")
+            cands = [ai.split_response(clean(r["candidates"][i])) for i in order]
+            history = [{"thought": h["thought"], "action": clean(h["action"])} for h in r["history"]]
+            msgs = ai.selection_messages(builder, r["task"], r["url"], history, cands, b"")
             user = msgs[1]["content"]
             if len(user) != 3 or user[1].get("type") != "image_url":
                 raise ValueError("canonical prompt no longer has text/image/text user blocks")
